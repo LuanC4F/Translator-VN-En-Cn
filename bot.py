@@ -111,8 +111,23 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, translate_message))
 
-    logger.info("Bot is starting with Groq (Llama 3.3 70B)…")
-    app.run_polling(drop_pending_updates=True)
+    # Nếu có RENDER_EXTERNAL_URL → chạy webhook (production)
+    # Nếu không → chạy polling (local dev)
+    RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
+    PORT = int(os.getenv("PORT", "10000"))
+
+    if RENDER_URL:
+        logger.info("Starting bot in WEBHOOK mode on %s", RENDER_URL)
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=BOT_TOKEN,
+            webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
+            drop_pending_updates=True,
+        )
+    else:
+        logger.info("Starting bot in POLLING mode (local dev)…")
+        app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
