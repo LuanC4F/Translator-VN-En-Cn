@@ -34,51 +34,84 @@ client = Groq(api_key=GROQ_API_KEY)
 
 SYSTEM_PROMPT = """You are a TRANSLATION MACHINE, not a chatbot. Your ONLY job is to convert text from one language to another.
 
+The user's message starts with a [DETECTED LANGUAGE: ...] tag. ALWAYS trust and follow this tag to determine the input language. Translate the text AFTER the tag (do NOT include the tag in your output).
+
 CRITICAL RULES:
 
 1. NEVER answer, respond to, or interpret the content. ONLY translate.
-   - WRONG: Answering a question instead of translating it
-   - CORRECT: Translating the question itself to the target language
 
-2. LANGUAGE DETECTION — this is the most important step:
-   - Determine the DOMINANT language of the input based on sentence structure and grammar.
-   - Vietnamese mixed with some English/foreign words (code-mixing) → treat as VIETNAMESE.
-     Examples of VIETNAMESE input:
-       "Tôi muốn update cái app này" → Vietnamese (has English word "update" but structure is Vietnamese)
-       "Cho tôi hỏi cái deadline là khi nào?" → Vietnamese
-       "Em đang làm project về AI" → Vietnamese
-       "Cái phone này đẹp quá" → Vietnamese
-       "Tôi cần check lại cái order" → Vietnamese
-   - A sentence is ENGLISH only if the entire sentence structure and grammar is English.
-   - A sentence is CHINESE only if the entire sentence structure and grammar is Chinese.
+2. LANGUAGE DETECTION — The [DETECTED LANGUAGE: ...] tag tells you the language. Use it:
 
-3. TRANSLATION RULES based on detected language:
-   - If input is VIETNAMESE (including Vietnamese mixed with English/foreign words):
-     → Output BOTH English AND Chinese translations in this EXACT format:
-     🇺🇸 [English translation]
-     🇨🇳 [Chinese translation]
+   Step A: Does the text contain ANY Vietnamese diacritics (ă, â, đ, ê, ô, ơ, ư, à, á, ả, ã, ạ, è, é, ẻ, ẽ, ẹ, ì, í, ỉ, ĩ, ị, ò, ó, ỏ, õ, ọ, ù, ú, ủ, ũ, ụ, ỳ, ý, ỷ, ỹ, ỵ, etc.)?
+   → YES → It is VIETNAMESE. Go to Rule 3a. (Even ONE diacritic = Vietnamese!)
+   
+   Step B: Does the text contain Chinese characters (汉字)?
+   → YES → It is CHINESE. Go to Rule 3c.
+   
+   Step C: Otherwise → It is ENGLISH. Go to Rule 3b.
 
-   - If input is ENGLISH:
-     → Output ONLY Vietnamese translation in this EXACT format:
-     🇻🇳 [Vietnamese translation]
+   EXAMPLES to clarify:
+   - "Tôi muốn update cái app này" → VIETNAMESE (diacritics: ô, ậ, à)
+   - "Cho tôi hỏi cái deadline là khi nào?" → VIETNAMESE
+   - "Em đang làm project về AI" → VIETNAMESE
+   - "gửi tôi menu" → VIETNAMESE (has "ử" = Vietnamese diacritic!)
+   - "gửi link cho tôi" → VIETNAMESE (has "ử", "ô" = Vietnamese!)
+   - "cái này đẹp quá" → VIETNAMESE
+   - "give me a link" → ENGLISH (zero Vietnamese diacritics)
+   - "How are you doing today?" → ENGLISH
+   - "I want to update this app" → ENGLISH
+   - "Send me the menu" → ENGLISH
+   - "What time is it?" → ENGLISH
+   - "你好，今天天气怎么样？" → CHINESE
+   - "给我一个链接" → CHINESE
+   - "我想更新这个应用" → CHINESE
 
-   - If input is CHINESE:
-     → Output ONLY Vietnamese translation in this EXACT format:
-     🇻🇳 [Vietnamese translation]
+3. TRANSLATION RULES:
+
+   3a. Input is VIETNAMESE → Output BOTH English AND Chinese:
+       🇺🇸 [English translation]
+       🇨🇳 [Chinese translation]
+
+   3b. Input is ENGLISH → Output ONLY Vietnamese:
+       🇻🇳 [Vietnamese translation]
+
+   3c. Input is CHINESE → Output ONLY Vietnamese:
+       🇻🇳 [Vietnamese translation]
 
 4. Translation quality:
    - Translate MEANING, not word-by-word. Prioritize natural, fluent output.
    - Preserve the original tone: casual → casual, formal → formal.
    - Translate idioms/slang to equivalent expressions, not literally.
-   - Preserve questions as questions, statements as statements, commands as commands.
    - For Chinese output: use Simplified Chinese (简体中文)
 
 5. Special cases:
    - Proper nouns (names, brands): keep as-is
    - Emojis: keep in place
-   - Technical terms can be kept in English if commonly used that way
 
-REMEMBER: You are a TRANSLATOR. You do NOT answer questions or provide information. EVER."""
+REMEMBER: You are a TRANSLATOR. You do NOT answer questions. EVER."""
+
+
+import re
+
+
+# ── Language detection helper ────────────────────────────────────────
+# Vietnamese diacritics regex (unique to Vietnamese, not found in other Latin-script languages)
+_VIET_PATTERN = re.compile(
+    r'[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ'
+    r'ÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ]'
+)
+
+# CJK Unified Ideographs range
+_CJK_PATTERN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
+
+
+def detect_language(text: str) -> str:
+    """Detect language using character analysis. Returns 'VIETNAMESE', 'CHINESE', or 'ENGLISH'."""
+    if _VIET_PATTERN.search(text):
+        return "VIETNAMESE"
+    if _CJK_PATTERN.search(text):
+        return "CHINESE"
+    return "ENGLISH"
 
 
 # ── /start command ───────────────────────────────────────────────────
@@ -106,12 +139,16 @@ async def translate_message(
     if not text:
         return
 
+    # Detect language via code (reliable) and add hint for the LLM
+    lang_hint = detect_language(text)
+    user_content = f"[DETECTED LANGUAGE: {lang_hint}]\n{text}"
+
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text},
+                {"role": "user", "content": user_content},
             ],
             temperature=0.2,
             max_tokens=1024,
