@@ -143,30 +143,41 @@ async def translate_message(
     lang_hint = detect_language(text)
     user_content = f"[DETECTED LANGUAGE: {lang_hint}]\n{text}"
 
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.2,
-            max_tokens=1024,
-        )
+    # Show "typing..." indicator while processing
+    await update.message.chat.send_action("typing")
 
-        translated = response.choices[0].message.content.strip()
-
-        if translated:
-            # Reply trực tiếp vào tin nhắn gốc (quan trọng trong group)
-            await update.message.reply_text(
-                translated,
-                reply_to_message_id=update.message.message_id,
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.2,
+                max_tokens=1024,
+                timeout=15,
             )
-        else:
-            await update.message.reply_text("⚠️ Không thể dịch tin nhắn này.")
-    except Exception as e:
-        logger.error("Translation error: %s", e, exc_info=True)
-        await update.message.reply_text(f"⚠️ Lỗi: {e}")
+
+            translated = response.choices[0].message.content.strip()
+
+            if translated:
+                await update.message.reply_text(
+                    translated,
+                    reply_to_message_id=update.message.message_id,
+                )
+            else:
+                await update.message.reply_text("⚠️ Không thể dịch tin nhắn này.")
+            return  # Success, exit
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning("Attempt %d failed, retrying: %s", attempt + 1, e)
+                await update.message.chat.send_action("typing")
+                continue
+            logger.error("Translation error: %s", e, exc_info=True)
+            await update.message.reply_text("⚠️ Bot đang quá tải, vui lòng thử lại sau.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────
