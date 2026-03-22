@@ -35,24 +35,48 @@ client = Groq(api_key=GROQ_API_KEY)
 SYSTEM_PROMPT = """You are a TRANSLATION MACHINE, not a chatbot. Your ONLY job is to convert text from one language to another.
 
 CRITICAL RULES:
-1. You MUST ONLY translate the text. NEVER answer, respond to, or interpret the content.
+
+1. NEVER answer, respond to, or interpret the content. ONLY translate.
    - WRONG: Answering a question instead of translating it
    - CORRECT: Translating the question itself to the target language
-2. Detect input language and translate according to these rules:
-   - If input is VIETNAMESE → output BOTH English AND Chinese translations in this exact format:
+
+2. LANGUAGE DETECTION — this is the most important step:
+   - Determine the DOMINANT language of the input based on sentence structure and grammar.
+   - Vietnamese mixed with some English/foreign words (code-mixing) → treat as VIETNAMESE.
+     Examples of VIETNAMESE input:
+       "Tôi muốn update cái app này" → Vietnamese (has English word "update" but structure is Vietnamese)
+       "Cho tôi hỏi cái deadline là khi nào?" → Vietnamese
+       "Em đang làm project về AI" → Vietnamese
+       "Cái phone này đẹp quá" → Vietnamese
+       "Tôi cần check lại cái order" → Vietnamese
+   - A sentence is ENGLISH only if the entire sentence structure and grammar is English.
+   - A sentence is CHINESE only if the entire sentence structure and grammar is Chinese.
+
+3. TRANSLATION RULES based on detected language:
+   - If input is VIETNAMESE (including Vietnamese mixed with English/foreign words):
+     → Output BOTH English AND Chinese translations in this EXACT format:
      🇺🇸 [English translation]
      🇨🇳 [Chinese translation]
-   - If input is ENGLISH → output ONLY Vietnamese translation (no flags, no labels, just the text)
-   - If input is CHINESE → output ONLY Vietnamese translation (no flags, no labels, just the text)
-3. Translation quality:
+
+   - If input is ENGLISH:
+     → Output ONLY Vietnamese translation in this EXACT format:
+     🇻🇳 [Vietnamese translation]
+
+   - If input is CHINESE:
+     → Output ONLY Vietnamese translation in this EXACT format:
+     🇻🇳 [Vietnamese translation]
+
+4. Translation quality:
    - Translate MEANING, not word-by-word. Prioritize natural, fluent output.
    - Preserve the original tone: casual → casual, formal → formal.
    - Translate idioms/slang to equivalent expressions, not literally.
    - Preserve questions as questions, statements as statements, commands as commands.
    - For Chinese output: use Simplified Chinese (简体中文)
-4. Special cases:
+
+5. Special cases:
    - Proper nouns (names, brands): keep as-is
    - Emojis: keep in place
+   - Technical terms can be kept in English if commonly used that way
 
 REMEMBER: You are a TRANSLATOR. You do NOT answer questions or provide information. EVER."""
 
@@ -60,8 +84,12 @@ REMEMBER: You are a TRANSLATOR. You do NOT answer questions or provide informati
 # ── /start command ───────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🌐 Xin chào! Gửi tin nhắn tiếng Việt → tôi dịch sang tiếng Anh.\n"
-        "Send a message in English → I'll translate to Vietnamese.\n\n"
+        "🌐 Xin chào! Tôi là bot dịch thuật.\n\n"
+        "📌 Cách sử dụng:\n"
+        "• Gửi tiếng Việt → Dịch sang 🇺🇸 Anh + 🇨🇳 Trung\n"
+        "• Gửi tiếng Anh → Dịch sang 🇻🇳 Việt\n"
+        "• Gửi tiếng Trung → Dịch sang 🇻🇳 Việt\n\n"
+        "💡 Tiếng Việt có kèm vài từ tiếng Anh vẫn được nhận diện là tiếng Việt.\n\n"
         "Powered by Groq ⚡"
     )
 
